@@ -1,0 +1,48 @@
+schema_version: 2
+
+runtime:
+  seed: 42
+  device: auto
+  deterministic: true
+
+model:
+  input_size: 31
+  seq_len: 45
+  hidden_dims:
+    - 256
+    - 128
+    - 64
+  num_depth_outputs: 5
+  dropout: 0.2
+  use_batch_norm: true
+
+training:
+  batch_size: 512
+  epochs: 200
+  gradient_clip: 1.0
+  num_workers: 4
+  optimizer:
+    type: adam
+    learning_rate: 0.005
+  scheduler:
+    type: reduce_on_plateau
+    patience: 10
+    factor: 0.5
+    min_lr: 1.0e-06
+  early_stopping:
+    patience: 20
+    min_delta: 0.001
+
+loss:
+  depth_weight: 0.7
+  overflow_weight: 0.3
+  flood_weight: 5.0
+
+data:
+  use_reduced: true
+
+evaluation:
+  threshold_artifact: artifacts/thresholds/mlp_val_threshold.json
+
+output:
+  checkpoint_dir: artifacts/checkpoints/mlp
