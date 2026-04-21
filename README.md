@@ -34,7 +34,6 @@ The current manuscript-facing main result is the `dual-branch LNN`, which achiev
 The final article comparison tables are available in:
 
 - `notebooks/article_materials_20260419/benchmark/article_main_table.csv`
-- `notebooks/article_materials_20260419/benchmark/article_main_table.md`
 - `notebooks/article_materials_20260419/benchmark/grouped_summary.csv`
 - `notebooks/article_materials_20260419/benchmark/nse_per_sensor_pivot.csv`
 
