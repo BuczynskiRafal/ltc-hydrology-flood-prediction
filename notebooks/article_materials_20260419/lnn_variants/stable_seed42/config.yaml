@@ -1,0 +1,55 @@
+schema_version: 2
+
+runtime:
+  seed: 42
+  device: auto
+  deterministic: true
+
+model:
+  input_size: 31
+  fast_units: 32
+  slow_units: 32
+  hidden_size: 128
+  num_depth_outputs: 5
+  dropout: 0.10
+  tau_mode: stepwise
+  per_neuron_tau: true
+  fast_tau_min: 0.05
+  fast_tau_max: 3.0
+  use_separate_depth_heads: true
+  depth_head_hidden_size: 64
+
+training:
+  batch_size: 256
+  epochs: 200
+  gradient_clip: 0.8
+  num_workers: 0
+  optimizer:
+    type: adam
+    learning_rate: 0.001
+    weight_decay: 0.00001
+    betas: [0.9, 0.999]
+    eps: 1e-8
+  scheduler:
+    type: cosine_annealing
+    eta_min: 0.00001
+    warmup_epochs: 5
+    warmup_start_factor: 0.2
+  early_stopping:
+    patience: 20
+    min_delta: 0.0
+
+loss:
+  depth_weight: 1.0
+  overflow_weight: 0.0
+  intensity_weight: 0.0
+  flood_weight: 1.0
+
+data:
+  use_reduced: true
+
+evaluation:
+  threshold_artifact: artifacts/experiments/lnn_tau_fix_depth_only_separate_heads_per_neuron_small_stability/thresholds/unused.json
+
+output:
+  checkpoint_dir: artifacts/experiments/lnn_tau_fix_depth_only_separate_heads_per_neuron_small_stability/checkpoints/lnn

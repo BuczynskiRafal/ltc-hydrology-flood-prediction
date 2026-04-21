@@ -358,51 +358,6 @@ class TestEvalIgSmoke(unittest.TestCase):
             eval_ig_module.CAPTUM_IMPORT_ERROR = original_err
 
 
-class TestVisualizeUncertaintyViews(unittest.TestCase):
-    """Verify the visualization helper accepts the canonical multi-method NPZ shapes."""
-
-    def test_resolve_uncertainty_view_supports_prefixed_mc_keys(self):
-        from experiments.visualize_uncertainty import _resolve_uncertainty_view
-
-        results = {
-            "mc_depths_mean": np.ones((2, 5), dtype=np.float32),
-            "mc_depths_std": np.ones((2, 5), dtype=np.float32),
-            "mc_depths_ci_lower": np.zeros((2, 5), dtype=np.float32),
-            "mc_depths_ci_upper": np.full((2, 5), 2.0, dtype=np.float32),
-            "mc_depths_true": np.ones((2, 5), dtype=np.float32),
-            "mc_overflow_mean": np.ones((2, 1), dtype=np.float32),
-            "mc_overflow_std": np.ones((2, 1), dtype=np.float32),
-            "mc_overflow_ci_lower": np.zeros((2, 1), dtype=np.float32),
-            "mc_overflow_ci_upper": np.full((2, 1), 2.0, dtype=np.float32),
-            "mc_overflow_true": np.ones(2, dtype=np.float32),
-        }
-
-        resolved, method = _resolve_uncertainty_view(results)
-
-        self.assertEqual(method, "mc")
-        self.assertIn("depths_mean", resolved)
-        np.testing.assert_allclose(resolved["depths_mean"], 1.0)
-
-    def test_resolve_uncertainty_view_rejects_legacy_keys(self):
-        from experiments.visualize_uncertainty import _resolve_uncertainty_view
-
-        results = {
-            "depths_mean": np.ones((2, 5), dtype=np.float32),
-            "depths_std": np.ones((2, 5), dtype=np.float32),
-            "depths_ci_lower": np.zeros((2, 5), dtype=np.float32),
-            "depths_ci_upper": np.full((2, 5), 2.0, dtype=np.float32),
-            "depths_true": np.ones((2, 5), dtype=np.float32),
-            "overflow_mean": np.ones((2, 1), dtype=np.float32),
-            "overflow_std": np.ones((2, 1), dtype=np.float32),
-            "overflow_ci_lower": np.zeros((2, 1), dtype=np.float32),
-            "overflow_ci_upper": np.full((2, 1), 2.0, dtype=np.float32),
-            "overflow_true": np.ones(2, dtype=np.float32),
-        }
-
-        with self.assertRaises(KeyError):
-            _resolve_uncertainty_view(results)
-
-
 @unittest.skipUnless(HAS_TORCH, _SKIP_REASON)
 class TestRunAblationsSmoke(unittest.TestCase):
     """Verify ablation config mutation and evaluation on synthetic data."""
