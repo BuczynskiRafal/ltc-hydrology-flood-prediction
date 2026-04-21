@@ -1,0 +1,67 @@
+{
+  "model": "tcn",
+  "title": "TCN Regression",
+  "architecture": "input=31, hidden=128, layers=3, kernel=3",
+  "timestamp": "20260416_121518",
+  "canonical_config_path": "configs/tcn_regression_config.yaml",
+  "checkpoint_path": "artifacts/checkpoints/tcn/best_model.pt",
+  "config_source": "checkpoint",
+  "use_reduced": true,
+  "input_size": 31,
+  "runtime_metadata": {
+    "model_name": "tcn",
+    "seed": 42,
+    "device": "cuda",
+    "schema_version": 2,
+    "git_sha": "2172d0dfa475b34869df5f69263f6678939c95ab",
+    "library_versions": {
+      "python": "3.12.13",
+      "numpy": "2.0.2",
+      "torch": "2.10.0+cu128"
+    },
+    "dataset_fingerprint": "9d1d8a46f04fcbc9db7f7f134a21c54c74598b148bd213deb8f6bc7033590a17",
+    "data_splits": [
+      {
+        "split": "test",
+        "use_reduced": true,
+        "files": {
+          "X": {
+            "path": "/content/bellinge/data/final_regression/test_X_reduced.npy",
+            "shape": [
+              9375,
+              45,
+              31
+            ],
+            "dtype": "float32",
+            "sha256": "6f370857e92f9591f611afb95d933f646ea38124f40d1f27fb2f1fa48011cc18"
+          },
+          "y_depths": {
+            "path": "/content/bellinge/data/final_regression/test_y_depths.npy",
+            "shape": [
+              9375,
+              5
+            ],
+            "dtype": "float32",
+            "sha256": "2602468971d643c257527729b9655ff73b6339c97d523ac45769baf4b80a4fea"
+          },
+          "y_overflow": {
+            "path": "/content/bellinge/data/final_regression/test_y_overflow.npy",
+            "shape": [
+              9375
+            ],
+            "dtype": "int32",
+            "sha256": "df37910d37dba81cf3079180b156f02bcebb4e6d28c6e009364182b0cdf16e01"
+          },
+          "flood_mask": {
+            "path": "/content/bellinge/data/final_regression/test_flood_mask.npy",
+            "shape": [
+              9375
+            ],
+            "dtype": "float32",
+            "sha256": "ec2d8eae309c9c13bc66cee164f54ac5cbda067f19a2278d1c0626a84e2e5a0f"
+          }
+        }
+      }
+    ]
+  }
+}
