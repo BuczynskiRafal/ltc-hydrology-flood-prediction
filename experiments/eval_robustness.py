@@ -25,7 +25,7 @@ from src.release_utils import write_json
 logger = get_console_logger(__name__)
 
 
-def parse_args():
+def parse_args(argv: list[str] | None = None):
     parser = argparse.ArgumentParser(
         description=(
             "Evaluate robustness under Gaussian noise, missing-data masking, "
@@ -65,7 +65,13 @@ def parse_args():
         default=[0.05, 0.10, 0.15, 0.20],
         help="Element-wise Bernoulli masking rates for missing-data robustness.",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--results-dir",
+        type=str,
+        default="artifacts/results/robustness",
+        help="Directory for robustness JSON output.",
+    )
+    return parser.parse_args(argv)
 
 
 def _predict_with_transform(model_name, model, loader, device, transform=None):
@@ -187,7 +193,7 @@ def _predict_with_fgsm(model_name, model, loader, device, epsilon):
         outputs = model(x)
         pred_depth, pred_overflow = outputs[:2]
         loss = F.mse_loss(pred_depth, y_depths) + F.binary_cross_entropy(
-            pred_overflow.squeeze(1), y_overflow
+            pred_overflow.squeeze(1).clamp(1e-7, 1.0 - 1e-7), y_overflow
         )
         if model_name == "lnn":
             loss = loss + F.mse_loss(outputs[2].squeeze(1), y_overflow)
@@ -206,8 +212,8 @@ def _predict_with_fgsm(model_name, model, loader, device, epsilon):
     )
 
 
-def main():
-    args = parse_args()
+def main(argv: list[str] | None = None):
+    args = parse_args(argv)
     artifact = load_trained_model(
         args.model,
         config_path=args.config,
@@ -331,10 +337,11 @@ def main():
             split_descriptions=[test_split_description],
         ),
     }
-    output_path = Path("artifacts/results/robustness") / f"{args.model}_robustness.json"
+    output_path = Path(args.results_dir) / f"{args.model}_robustness.json"
     write_json(output_path, output)
     logger.info(json.dumps(output, indent=2))
     logger.info(f"Saved to: {output_path}")
+    return output_path
 
 
 if __name__ == "__main__":

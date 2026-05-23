@@ -24,7 +24,7 @@ else:
     CAPTUM_IMPORT_ERROR = None
 
 
-def parse_args():
+def parse_args(argv: list[str] | None = None):
     parser = argparse.ArgumentParser(
         description="Compute Integrated Gradients feature attributions for the overflow head."
     )
@@ -46,17 +46,23 @@ def parse_args():
         default=128,
         help="Maximum number of test samples to attribute.",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--results-dir",
+        type=str,
+        default="artifacts/results/ig",
+        help="Directory for the Integrated Gradients JSON output.",
+    )
+    return parser.parse_args(argv)
 
 
-def main():
+def main(argv: list[str] | None = None):
+    args = parse_args(argv)
     if IntegratedGradients is None:
         raise ModuleNotFoundError(
             "Captum is required for eval_ig.py. Install project dependencies from "
             "`requirements.txt` or install `captum` manually."
         ) from CAPTUM_IMPORT_ERROR
 
-    args = parse_args()
     artifact = load_trained_model(
         args.model,
         config_path=args.config,
@@ -98,12 +104,11 @@ def main():
         },
         "timestep_importance": [float(value) for value in per_timestep],
     }
-    output_path = (
-        Path("artifacts/results/ig") / f"{args.model}_integrated_gradients.json"
-    )
+    output_path = Path(args.results_dir) / f"{args.model}_integrated_gradients.json"
     write_json(output_path, output)
     logger.info(json.dumps(output, indent=2))
     logger.info(f"Saved to: {output_path}")
+    return output_path
 
 
 if __name__ == "__main__":

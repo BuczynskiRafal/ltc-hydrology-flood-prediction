@@ -64,11 +64,16 @@ def evaluate_overflow(y_true, y_pred, threshold=0.5):
     return {"F1": f1, "Precision": precision, "Recall": recall, "ROC-AUC": roc_auc}
 
 
-def resolve_checkpoint_path(checkpoint_dir):
+def resolve_checkpoint_path(checkpoint_dir, model_name):
     checkpoint_dir = Path(checkpoint_dir)
     flat_path = checkpoint_dir / "best_model.pt"
+    legacy_path = checkpoint_dir / model_name / "best_model.pt"
 
     if flat_path.exists():
         return flat_path
+    if legacy_path.exists():
+        return legacy_path
 
-    raise FileNotFoundError(f"Could not find checkpoint in '{flat_path}'.")
+    raise FileNotFoundError(
+        f"Could not find checkpoint in '{flat_path}' or legacy path '{legacy_path}'."
+    )
