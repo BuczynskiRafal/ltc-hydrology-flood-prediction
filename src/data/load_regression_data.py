@@ -4,20 +4,21 @@ from src.data_utils import (
     load_regression_arrays,
 )
 from src.project_config import TARGET_SENSORS, WINDOW_T_IN
-from src.selected_features import SELECTED_FEATURES
 
 
-def load_regression_data(split="train", use_reduced=True):
-    arrays = load_regression_arrays(split, use_reduced)
-    validate_regression_split_contract(split, arrays, use_reduced=use_reduced)
+def load_regression_data(split="train", use_reduced=True, data_dir=None):
+    arrays = load_regression_arrays(split, use_reduced, data_dir=data_dir)
+    validate_regression_split_contract(
+        split, arrays, use_reduced=use_reduced, data_dir=data_dir
+    )
     return arrays
 
 
-def describe_regression_data(split="train", use_reduced=True):
-    return describe_regression_arrays(split, use_reduced)
+def describe_regression_data(split="train", use_reduced=True, data_dir=None):
+    return describe_regression_arrays(split, use_reduced, data_dir=data_dir)
 
 
-def validate_regression_split_contract(split, arrays, use_reduced=True):
+def validate_regression_split_contract(split, arrays, use_reduced=True, data_dir=None):
     X = arrays["X"]
     y_depths = arrays["y_depths"]
     y_overflow = arrays["y_overflow"]
@@ -31,10 +32,8 @@ def validate_regression_split_contract(split, arrays, use_reduced=True):
             f"got {X.shape[1]}"
         )
 
-    expected_channels = (
-        len(SELECTED_FEATURES)
-        if use_reduced
-        else len(load_feature_names(use_reduced=False))
+    expected_channels = len(
+        load_feature_names(use_reduced=use_reduced, data_dir=data_dir)
     )
     if X.shape[2] != expected_channels:
         raise ValueError(

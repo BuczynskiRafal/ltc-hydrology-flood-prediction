@@ -9,7 +9,9 @@ from src.project_config import (
     RAIN_COLS,
     RAIN_EVENT_THRESHOLD,
     RAINFALL_INTENSITY_WINDOW,
+    TARGET_SENSORS,
 )
+from src.selected_features import SELECTED_FEATURES
 
 logger = get_console_logger(__name__)
 
@@ -85,6 +87,18 @@ for i in range(7):
 data["month"] = data["time"].dt.month
 data["month_sin"] = np.sin(2 * np.pi * data["month"] / 12)
 data["month_cos"] = np.cos(2 * np.pi * data["month"] / 12)
+
+required_columns = ["time", *SELECTED_FEATURES, *TARGET_SENSORS]
+missing_columns = [col for col in required_columns if col not in data.columns]
+if missing_columns:
+    raise ValueError(
+        "engineer_features is missing canonical columns required downstream: "
+        + ", ".join(missing_columns)
+    )
+
+data = data[required_columns].copy()
+for col in [*SELECTED_FEATURES, *TARGET_SENSORS]:
+    data[col] = data[col].astype(np.float32)
 
 feature_names = [c for c in data.columns if c != "time"]
 save_features(data, feature_names)

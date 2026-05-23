@@ -33,6 +33,7 @@ EXPECTED_TABULAR_COLUMNS = [
     "target",
 ]
 AUGMENTATION_COLUMNS = ["synthetic", "augmentation_method"]
+WINDOW_INPUT_COLUMNS = EXPECTED_FEATURE_COLUMNS
 
 
 def get_feature_columns(df):
@@ -86,13 +87,49 @@ def validate_time_schema(split_name, df):
 
 
 def validate_predictor_missingness(split_name, df):
-    predictor_frame = df[SELECTED_FEATURES]
+    predictor_frame = df[WINDOW_INPUT_COLUMNS]
     if predictor_frame.isna().any().any():
         missing_cols = predictor_frame.columns[predictor_frame.isna().any()].tolist()
         raise ValueError(
             f"{split_name} contains missing values in canonical predictors: "
             f"{missing_cols}"
         )
+
+
+def compute_feature_fallbacks(train_df):
+    fallbacks = {}
+    for col in WINDOW_INPUT_COLUMNS:
+        value = train_df[col].mean(skipna=True)
+        fallbacks[col] = 0.0 if pd.isna(value) else float(value)
+    return fallbacks
+
+
+def impute_predictor_missingness(split_name, df, feature_fallbacks):
+    predictor_frame = df[WINDOW_INPUT_COLUMNS]
+    if not predictor_frame.isna().any().any():
+        return df
+
+    df = df.copy()
+    missing_before = predictor_frame.isna().sum()
+
+    for col in WINDOW_INPUT_COLUMNS:
+        if col not in df.columns:
+            continue
+        if not df[col].isna().any():
+            continue
+        df[col] = df[col].interpolate(method="linear", limit_direction="both")
+        if df[col].isna().any() and col in TARGET_SENSORS:
+            df[col] = df[col].ffill().bfill()
+        if df[col].isna().any():
+            df[col] = df[col].fillna(feature_fallbacks.get(col, 0.0))
+
+    missing_after = df[WINDOW_INPUT_COLUMNS].isna().sum()
+    resolved = int(missing_before.sum() - missing_after.sum())
+    logger.info(
+        f"{split_name}: imputed {resolved:,} predictor values via "
+        "linear interpolation with train-mean fallback."
+    )
+    return df
 
 
 def parse_args():
@@ -134,6 +171,8 @@ def main():
     )
     splits = {"train": train_df, "val": val_df, "test": test_df}
 
+    feature_fallbacks = compute_feature_fallbacks(train_df)
+
     for split_name, df in splits.items():
         df["time"] = pd.to_datetime(df["time"])
         validate_required_columns(split_name, df)
@@ -142,6 +181,7 @@ def main():
             split_name, df, allow_augmentation_columns=is_augmented_split
         )
         validate_time_schema(split_name, df)
+        df = impute_predictor_missingness(split_name, df, feature_fallbacks)
         validate_predictor_missingness(split_name, df)
         if is_augmented_split:
             df = df.drop(columns=[c for c in AUGMENTATION_COLUMNS if c in df.columns])

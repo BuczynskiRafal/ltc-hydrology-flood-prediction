@@ -6,6 +6,7 @@ import random
 import subprocess
 import sys
 import warnings
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -49,11 +50,35 @@ COMMON_SCHEDULER_KEYS = {
     "eta_min",
     "T_0",
     "T_mult",
+    "warmup_epochs",
+    "warmup_start_factor",
 }
 COMMON_EARLY_STOPPING_KEYS = {"patience", "min_delta"}
-COMMON_DATA_KEYS = {"use_reduced"}
+COMMON_DATA_KEYS = {"use_reduced", "data_dir"}
 COMMON_EVALUATION_KEYS = {"threshold_artifact"}
 COMMON_OUTPUT_KEYS = {"checkpoint_dir"}
+LNN_OPTIONAL_MODEL_KEYS = {
+    "encoder_input_size",
+    "use_fast_path",
+    "use_slow_path",
+    "use_attention",
+    "use_learnable_slow_tau",
+    "slow_tau_init",
+    "use_path_layer_norm",
+    "per_neuron_tau",
+    "fast_tau_min",
+    "fast_tau_max",
+    "use_separate_depth_heads",
+    "depth_head_hidden_size",
+    "pump_head_target_index",
+    "pump_head_feature_indices",
+    "use_pump_branch",
+    "pump_branch_input_indices",
+    "pump_branch_fast_units",
+    "pump_branch_slow_units",
+    "pump_branch_hidden_size",
+    "pump_branch_use_attention",
+}
 
 MODEL_REQUIRED_KEYS = {
     "gru": {"input_size", "hidden_size", "num_depth_outputs", "num_layers", "dropout"},
@@ -92,6 +117,24 @@ LOSS_REQUIRED_KEYS = {
     "mlp": {"depth_weight", "overflow_weight", "flood_weight"},
     "lnn": {"depth_weight", "overflow_weight", "intensity_weight"},
 }
+
+LOSS_OPTIONAL_KEYS = {
+    "gru": {"pos_weight"},
+    "lstm": {"pos_weight"},
+    "tcn": {"pos_weight"},
+    "mlp": {"pos_weight"},
+    "lnn": {"flood_weight", "pos_weight"},
+}
+
+
+def deep_merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    merged = deepcopy(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and key in merged and isinstance(merged[key], dict):
+            merged[key] = deep_merge_dicts(merged[key], value)
+        else:
+            merged[key] = deepcopy(value)
+    return merged
 
 
 def _validate_section_keys(
@@ -156,11 +199,7 @@ def validate_model_config(
         "model",
         config["model"],
         MODEL_REQUIRED_KEYS[model_name],
-        optional_keys=(
-            {"use_fast_path", "use_slow_path", "use_attention"}
-            if model_name == "lnn"
-            else set()
-        ),
+        optional_keys=LNN_OPTIONAL_MODEL_KEYS if model_name == "lnn" else set(),
         allow_extra=allow_extra,
     )
     _validate_section_keys(
@@ -192,7 +231,15 @@ def validate_model_config(
             else {"patience", "factor", "min_lr"}
         ),
         optional_keys=(
-            {"patience", "factor", "min_lr", "T_0", "T_mult"}
+            {
+                "patience",
+                "factor",
+                "min_lr",
+                "T_0",
+                "T_mult",
+                "warmup_epochs",
+                "warmup_start_factor",
+            }
             if str(config["training"]["scheduler"]["type"]).lower()
             in {
                 "cosine_annealing",
@@ -200,7 +247,7 @@ def validate_model_config(
                 "cosine_warm_restarts",
                 "cosineannealingwarmrestarts",
             }
-            else {"eta_min", "T_0", "T_mult"}
+            else {"eta_min", "T_0", "T_mult", "warmup_epochs", "warmup_start_factor"}
         ),
         allow_extra=allow_extra,
     )
@@ -214,7 +261,7 @@ def validate_model_config(
         "loss",
         config["loss"],
         LOSS_REQUIRED_KEYS[model_name],
-        optional_keys={"pos_weight"} if model_name != "lnn" else set(),
+        optional_keys=LOSS_OPTIONAL_KEYS[model_name],
         allow_extra=allow_extra,
     )
     _validate_section_keys(
@@ -229,6 +276,71 @@ def validate_model_config(
     _validate_section_keys(
         "output", config["output"], COMMON_OUTPUT_KEYS, allow_extra=allow_extra
     )
+
+
+def _filter_nested_dict(
+    data: dict[str, Any], allowed_schema: dict[str, Any], prefix: str = ""
+) -> tuple[dict[str, Any], list[str]]:
+    filtered: dict[str, Any] = {}
+    ignored_paths: list[str] = []
+    for key, value in data.items():
+        if key not in allowed_schema:
+            ignored_paths.append(f"{prefix}{key}")
+            continue
+
+        allowed_value = allowed_schema[key]
+        if isinstance(allowed_value, dict) and isinstance(value, dict):
+            child_filtered, child_ignored = _filter_nested_dict(
+                value, allowed_value, prefix=f"{prefix}{key}."
+            )
+            filtered[key] = child_filtered
+            ignored_paths.extend(child_ignored)
+        else:
+            filtered[key] = deepcopy(value)
+    return filtered, ignored_paths
+
+
+def extract_supported_config(
+    model_name: str, raw_config: dict[str, Any]
+) -> tuple[dict[str, Any], list[str]]:
+    allowed_schema = {
+        "schema_version": None,
+        "runtime": {key: None for key in COMMON_RUNTIME_KEYS},
+        "model": {
+            key: None
+            for key in (
+                MODEL_REQUIRED_KEYS[model_name]
+                | (LNN_OPTIONAL_MODEL_KEYS if model_name == "lnn" else set())
+            )
+        },
+        "training": {
+            "batch_size": None,
+            "epochs": None,
+            "gradient_clip": None,
+            "num_workers": None,
+            "optimizer": {
+                key: None
+                for key in (
+                    COMMON_OPTIMIZER_KEYS
+                    | (
+                        {"betas", "eps", "weight_decay"}
+                        if model_name == "lnn"
+                        else set()
+                    )
+                )
+            },
+            "scheduler": {key: None for key in COMMON_SCHEDULER_KEYS},
+            "early_stopping": {key: None for key in COMMON_EARLY_STOPPING_KEYS},
+        },
+        "loss": {
+            key: None
+            for key in (LOSS_REQUIRED_KEYS[model_name] | LOSS_OPTIONAL_KEYS[model_name])
+        },
+        "data": {key: None for key in COMMON_DATA_KEYS},
+        "evaluation": {key: None for key in COMMON_EVALUATION_KEYS},
+        "output": {key: None for key in COMMON_OUTPUT_KEYS},
+    }
+    return _filter_nested_dict(raw_config, allowed_schema)
 
 
 def set_global_seed(seed: int, deterministic: bool = True) -> None:

@@ -7,6 +7,10 @@ import numpy as np
 from src.project_config import DATA_INTERIM, DATA_REGRESSION
 
 
+def _resolve_data_regression_dir(data_dir: str | Path | None = None) -> Path:
+    return Path(data_dir) if data_dir is not None else DATA_REGRESSION
+
+
 def load_pickle(filepath):
     filepath = Path(filepath)
     if not filepath.exists():
@@ -16,6 +20,8 @@ def load_pickle(filepath):
 
 
 def save_pickle(data, filepath):
+    filepath = Path(filepath)
+    filepath.parent.mkdir(parents=True, exist_ok=True)
     with open(filepath, "wb") as f:
         pickle.dump(data, f)
 
@@ -57,13 +63,14 @@ def load_norm_params():
     return load_pickle(DATA_INTERIM / "norm_params.pkl")
 
 
-def get_regression_array_paths(split="train", use_reduced=True):
+def get_regression_array_paths(split="train", use_reduced=True, data_dir=None):
     suffix = "_reduced" if use_reduced else ""
+    base_dir = _resolve_data_regression_dir(data_dir)
     return {
-        "X": DATA_REGRESSION / f"{split}_X{suffix}.npy",
-        "y_depths": DATA_REGRESSION / f"{split}_y_depths.npy",
-        "y_overflow": DATA_REGRESSION / f"{split}_y_overflow.npy",
-        "flood_mask": DATA_REGRESSION / f"{split}_flood_mask.npy",
+        "X": base_dir / f"{split}_X{suffix}.npy",
+        "y_depths": base_dir / f"{split}_y_depths.npy",
+        "y_overflow": base_dir / f"{split}_y_overflow.npy",
+        "flood_mask": base_dir / f"{split}_flood_mask.npy",
     }
 
 
@@ -75,8 +82,10 @@ def _ensure_required_files_exist(filepaths):
         )
 
 
-def load_regression_arrays(split="train", use_reduced=True):
-    paths = get_regression_array_paths(split=split, use_reduced=use_reduced)
+def load_regression_arrays(split="train", use_reduced=True, data_dir=None):
+    paths = get_regression_array_paths(
+        split=split, use_reduced=use_reduced, data_dir=data_dir
+    )
     _ensure_required_files_exist(paths.values())
     return {name: np.load(path) for name, path in paths.items()}
 
@@ -92,12 +101,16 @@ def _sha256_file(path):
     return hasher.hexdigest()
 
 
-def describe_regression_arrays(split="train", use_reduced=True):
-    paths = get_regression_array_paths(split=split, use_reduced=use_reduced)
+def describe_regression_arrays(split="train", use_reduced=True, data_dir=None):
+    base_dir = _resolve_data_regression_dir(data_dir)
+    paths = get_regression_array_paths(
+        split=split, use_reduced=use_reduced, data_dir=base_dir
+    )
     _ensure_required_files_exist(paths.values())
     description = {
         "split": split,
         "use_reduced": bool(use_reduced),
+        "data_dir": str(base_dir),
         "files": {},
     }
     for name, path in paths.items():
@@ -111,13 +124,15 @@ def describe_regression_arrays(split="train", use_reduced=True):
     return description
 
 
-def load_target_sensors():
-    return load_pickle(DATA_REGRESSION / "target_sensors.pkl")
+def load_target_sensors(data_dir=None):
+    base_dir = _resolve_data_regression_dir(data_dir)
+    return load_pickle(base_dir / "target_sensors.pkl")
 
 
-def load_feature_names(use_reduced=True):
+def load_feature_names(use_reduced=True, data_dir=None):
     suffix = "_reduced" if use_reduced else ""
-    return load_pickle(DATA_REGRESSION / f"feature_names{suffix}.pkl")
+    base_dir = _resolve_data_regression_dir(data_dir)
+    return load_pickle(base_dir / f"feature_names{suffix}.pkl")
 
 
 def save_unified_data(sensor_data, rain_data):
@@ -132,6 +147,7 @@ def save_cleaned_data(sensor_data, rain_data):
 
 def save_features(data, feature_names):
     save_pickle(data, DATA_INTERIM / "features.pkl")
+    DATA_INTERIM.mkdir(parents=True, exist_ok=True)
     with open(DATA_INTERIM / "feature_names.txt", "w") as f:
         f.write("\n".join(feature_names))
 
@@ -149,13 +165,24 @@ def save_labeled_data(train, val, test):
     save_pickle(test, DATA_INTERIM / "test_labeled.pkl")
 
 
-def save_regression_arrays(split, X, y_depths, y_overflow, flood_mask, suffix=""):
-    np.save(DATA_REGRESSION / f"{split}_X{suffix}.npy", X)
-    np.save(DATA_REGRESSION / f"{split}_y_depths.npy", y_depths)
-    np.save(DATA_REGRESSION / f"{split}_y_overflow.npy", y_overflow)
-    np.save(DATA_REGRESSION / f"{split}_flood_mask.npy", flood_mask)
+def save_regression_arrays(
+    split,
+    X,
+    y_depths,
+    y_overflow,
+    flood_mask,
+    suffix="",
+    data_dir=None,
+):
+    base_dir = _resolve_data_regression_dir(data_dir)
+    base_dir.mkdir(parents=True, exist_ok=True)
+    np.save(base_dir / f"{split}_X{suffix}.npy", X)
+    np.save(base_dir / f"{split}_y_depths.npy", y_depths)
+    np.save(base_dir / f"{split}_y_overflow.npy", y_overflow)
+    np.save(base_dir / f"{split}_flood_mask.npy", flood_mask)
 
 
-def save_regression_metadata(target_sensors, feature_names, suffix=""):
-    save_pickle(target_sensors, DATA_REGRESSION / "target_sensors.pkl")
-    save_pickle(feature_names, DATA_REGRESSION / f"feature_names{suffix}.pkl")
+def save_regression_metadata(target_sensors, feature_names, suffix="", data_dir=None):
+    base_dir = _resolve_data_regression_dir(data_dir)
+    save_pickle(target_sensors, base_dir / "target_sensors.pkl")
+    save_pickle(feature_names, base_dir / f"feature_names{suffix}.pkl")
