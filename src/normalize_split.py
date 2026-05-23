@@ -1,11 +1,13 @@
 import numpy as np
 import pandas as pd
 
-from src.data_utils import load_features, save_normalized_data
+from src.data_utils import load_features, save_pickle
 from src.logger import get_console_logger
 from src.project_config import (
+    DATA_INTERIM,
     LOG_EPSILON,
     OUTPUT_REPORTS,
+    TARGET_SENSORS,
     TEST_YEARS,
     TRAIN_YEARS,
     VAL_YEARS,
@@ -13,21 +15,31 @@ from src.project_config import (
     is_rain_feature,
     is_temporal_feature,
 )
-from src.selected_features import filter_features
+from src.selected_features import SELECTED_FEATURES, filter_features
 
 logger = get_console_logger(__name__)
 
 
 data = load_features()
-data["year"] = data["time"].dt.year
+required_columns = ["time", *SELECTED_FEATURES, *TARGET_SENSORS]
+missing_columns = [col for col in required_columns if col not in data.columns]
+if missing_columns:
+    raise ValueError(
+        "normalize_split is missing canonical columns from features.pkl: "
+        + ", ".join(missing_columns)
+    )
 
-train = data[data["year"].isin(TRAIN_YEARS)].copy()
-val = data[data["year"].isin(VAL_YEARS)].copy()
-test = data[data["year"].isin(TEST_YEARS)].copy()
+data = data[required_columns].copy()
+for col in [*SELECTED_FEATURES, *TARGET_SENSORS]:
+    data[col] = pd.to_numeric(data[col], downcast="float")
 
-feature_cols = [
-    c for c in data.columns if c not in ["time", "year", "event_active", "event_change"]
-]
+data["year"] = data["time"].dt.year.astype(np.int16)
+
+train_mask = data["year"].isin(TRAIN_YEARS)
+val_mask = data["year"].isin(VAL_YEARS)
+test_mask = data["year"].isin(TEST_YEARS)
+
+feature_cols = list(SELECTED_FEATURES)
 
 temporal_features = [c for c in feature_cols if is_temporal_feature(c)]
 bounded_features = [c for c in feature_cols if is_bounded_feature(c)]
@@ -41,7 +53,7 @@ continuous_features = [
 norm_params = {}
 
 for col in continuous_features:
-    values = train[col].dropna()
+    values = data.loc[train_mask, col].dropna()
     if len(values) > 0:
         sigma = values.std()
         if sigma == 0:
@@ -55,7 +67,7 @@ for col in continuous_features:
             }
 
 for col in bounded_features:
-    values = train[col].dropna()
+    values = data.loc[train_mask, col].dropna()
     if len(values) > 0:
         min_value = values.min()
         max_value = values.max()
@@ -77,9 +89,8 @@ for col in temporal_features:
 
 
 def normalize_data(df, params):
-    df_norm = df.copy()
     for col, param in params.items():
-        if col not in df_norm.columns:
+        if col not in df.columns:
             continue
         if param["type"] == "zscore":
             if param["sigma"] == 0:
@@ -87,24 +98,35 @@ def normalize_data(df, params):
                     f"WARNING: Skipping z-score normalization for {col} because sigma == 0."
                 )
                 continue
-            df_norm[col] = (df_norm[col] - param["mu"]) / param["sigma"]
+            df[col] = (df[col] - param["mu"]) / param["sigma"]
         elif param["type"] == "minmax":
             if param["max"] == param["min"]:
                 logger.info(
                     f"WARNING: Skipping min-max normalization for {col} because max == min."
                 )
                 continue
-            df_norm[col] = (df_norm[col] - param["min"]) / (param["max"] - param["min"])
+            df[col] = (df[col] - param["min"]) / (param["max"] - param["min"])
         elif param["type"] == "log":
-            df_norm[col] = np.log(df_norm[col] + param["epsilon"])
-    return df_norm
+            df[col] = np.log(df[col] + param["epsilon"])
+    return df
 
 
-train_norm = filter_features(normalize_data(train, norm_params))
-val_norm = filter_features(normalize_data(val, norm_params))
-test_norm = filter_features(normalize_data(test, norm_params))
+def save_normalized_split(split_name, mask):
+    logger.info(f"Normalizing {split_name} split...")
+    split_frame = data.loc[
+        mask, ["time", "year", *SELECTED_FEATURES, *TARGET_SENSORS]
+    ].copy()
+    split_frame = normalize_data(split_frame, norm_params)
+    split_frame = filter_features(split_frame)
+    save_pickle(split_frame, DATA_INTERIM / f"{split_name}_normalized.pkl")
+    logger.info(f"Saved {split_name} split with shape={split_frame.shape}")
 
-save_normalized_data(train_norm, val_norm, test_norm, norm_params)
+
+save_normalized_split("train", train_mask)
+save_normalized_split("val", val_mask)
+save_normalized_split("test", test_mask)
+save_pickle(norm_params, DATA_INTERIM / "norm_params.pkl")
+OUTPUT_REPORTS.mkdir(parents=True, exist_ok=True)
 pd.DataFrame.from_dict(norm_params, orient="index").to_csv(
     OUTPUT_REPORTS / "normalization_params.csv"
 )
