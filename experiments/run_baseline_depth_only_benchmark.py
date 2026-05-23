@@ -111,6 +111,15 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_PUMP_SENSOR,
         help=f"Pump-only target sensor. Defaults to {DEFAULT_PUMP_SENSOR}.",
     )
+    parser.add_argument(
+        "--substantial-nse-threshold",
+        type=float,
+        default=0.02,
+        help=(
+            "Minimum all-sensors NSE gain for marking a depth-only baseline as "
+            "a substantial improvement over its multitask counterpart."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -246,6 +255,7 @@ def build_depth_only_comparison(
     output_dir: Path,
     pump_sensor: str,
     lnn_label: str,
+    substantial_nse_threshold: float,
 ) -> None:
     model_rows = []
     per_sensor_rows = []
@@ -279,6 +289,7 @@ def build_depth_only_comparison(
         output_dir=comparison_dir,
         pump_sensor=pump_sensor,
         lnn_label=lnn_label,
+        substantial_nse_threshold=substantial_nse_threshold,
     )
 
 
@@ -310,6 +321,7 @@ def write_multitask_depth_lnn_tables(
     output_dir: Path,
     pump_sensor: str,
     lnn_label: str,
+    substantial_nse_threshold: float,
 ) -> None:
     multitask_rows = []
     multitask_per_sensor = []
@@ -389,7 +401,11 @@ def write_multitask_depth_lnn_tables(
         output_dir / "baseline_depth_only_minus_multitask_deltas.csv",
         index=False,
     )
-    write_improvement_assessment(pd.DataFrame(deltas), output_dir)
+    write_improvement_assessment(
+        pd.DataFrame(deltas),
+        output_dir,
+        substantial_nse_threshold=substantial_nse_threshold,
+    )
 
     write_per_sensor_comparison(
         models=models,
@@ -453,15 +469,31 @@ def write_per_sensor_comparison(
     )
 
 
-def write_improvement_assessment(deltas: pd.DataFrame, output_dir: Path) -> None:
+def write_improvement_assessment(
+    deltas: pd.DataFrame,
+    output_dir: Path,
+    *,
+    substantial_nse_threshold: float = 0.02,
+) -> None:
     all_sensors = deltas[deltas["group"] == "all_sensors"].copy()
-    substantial_threshold = 0.02
     all_sensors["substantial_NSE_improvement"] = (
-        all_sensors["delta_NSE"] >= substantial_threshold
+        all_sensors["delta_NSE"] >= substantial_nse_threshold
+    )
+    all_sensors["RMSE_improved"] = all_sensors["delta_RMSE"] < 0.0
+    all_sensors["MAE_improved"] = all_sensors["delta_MAE"] < 0.0
+    all_sensors["all_depth_metrics_improved"] = (
+        (all_sensors["delta_NSE"] > 0.0)
+        & all_sensors["RMSE_improved"]
+        & all_sensors["MAE_improved"]
     )
     gru_rows = all_sensors[all_sensors["model"] == "GRU"]
     payload = {
-        "substantial_delta_nse_threshold": substantial_threshold,
+        "substantial_delta_nse_threshold": substantial_nse_threshold,
+        "assessment_notes": {
+            "NSE": "Higher is better; substantial_NSE_improvement uses the configured threshold.",
+            "RMSE": "Lower is better; RMSE_improved is true when depth-only RMSE is lower than multitask RMSE.",
+            "MAE": "Lower is better; MAE_improved is true when depth-only MAE is lower than multitask MAE.",
+        },
         "all_sensors": all_sensors.to_dict(orient="records"),
         "gru": None if gru_rows.empty else gru_rows.iloc[0].to_dict(),
     }
@@ -537,6 +569,7 @@ def main() -> None:
         output_dir=output_dir,
         pump_sensor=args.pump_sensor,
         lnn_label=args.lnn_label,
+        substantial_nse_threshold=float(args.substantial_nse_threshold),
     )
     write_run_manifest(
         output_dir=output_dir,

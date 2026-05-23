@@ -1,3 +1,4 @@
+import argparse
 import json
 from datetime import datetime
 from pathlib import Path
@@ -22,6 +23,36 @@ logger = get_console_logger(__name__)
 MC_DROPOUT_SAMPLES = 100
 DELTA_RELATIVE_INPUT_ERROR = 0.05
 DELTA_INPUT_EPS = 1e-6
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Evaluate LNN predictive uncertainty on the canonical regression test split."
+        )
+    )
+    parser.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        help="Optional canonical config override.",
+    )
+    parser.add_argument(
+        "--checkpoint",
+        type=str,
+        default=None,
+        help="Optional checkpoint override.",
+    )
+    parser.add_argument(
+        "--results-dir",
+        type=str,
+        default=None,
+        help=(
+            "Directory for JSON/NPZ uncertainty artifacts "
+            "(default: artifacts/results/uncertainty)."
+        ),
+    )
+    return parser.parse_args(argv)
 
 
 def analyze_flood_uncertainty(results):
@@ -91,11 +122,13 @@ def save_results(
         },
     }
 
-    with open(results_dir / f"lnn_uncertainty_metrics_{timestamp}.json", "w") as f:
+    metrics_path = results_dir / f"lnn_uncertainty_metrics_{timestamp}.json"
+    with open(metrics_path, "w") as f:
         json.dump(output_data, f, indent=2)
 
+    predictions_path = results_dir / f"lnn_uncertainty_predictions_{timestamp}.npz"
     np.savez(
-        results_dir / f"lnn_uncertainty_predictions_{timestamp}.npz",
+        predictions_path,
         mc_depths_mean=mc_results["depths_mean"],
         mc_depths_std=mc_results["depths_std"],
         mc_depths_ci_lower=mc_results["depths_ci_lower"],
@@ -117,11 +150,18 @@ def save_results(
         delta_overflow_ci_upper=delta_results["overflow_ci_upper"],
         delta_overflow_true=delta_results["overflow_true"],
     )
+    return metrics_path, predictions_path
 
 
-def main():
+def main(argv: list[str] | None = None):
+    args = parse_args(argv)
     device = get_device()
-    artifact = load_trained_model("lnn", device=device)
+    artifact = load_trained_model(
+        "lnn",
+        device=device,
+        config_path=args.config,
+        checkpoint_path=args.checkpoint,
+    )
     runtime_config = artifact["runtime_config"]
 
     use_reduced = runtime_config["data"].get("use_reduced", True)
@@ -157,7 +197,7 @@ def main():
     mc_flood_analysis = analyze_flood_uncertainty(mc_results)
     delta_flood_analysis = analyze_flood_uncertainty(delta_results)
 
-    save_results(
+    metrics_path, predictions_path = save_results(
         mc_results,
         delta_results,
         mc_metrics,
@@ -170,7 +210,11 @@ def main():
         test_data,
         use_reduced,
         artifact["config_source"],
+        results_dir=args.results_dir,
     )
+    logger.info(f"Saved metrics to: {metrics_path}")
+    logger.info(f"Saved predictions to: {predictions_path}")
+    return metrics_path, predictions_path
 
 
 if __name__ == "__main__":

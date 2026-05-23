@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import platform
+import warnings
 from collections.abc import Sequence
 from copy import deepcopy
 from datetime import datetime
@@ -33,6 +34,8 @@ from src.models.tcn_regression import TCNRegression
 from src.release_utils import (
     build_dataset_fingerprint,
     collect_library_versions,
+    deep_merge_dicts,
+    extract_supported_config,
     get_git_sha,
     resolve_device,
     set_global_seed,
@@ -50,6 +53,13 @@ CANONICAL_CONFIG_PATHS = {
     "tcn": Path("configs/tcn_regression_config.yaml"),
     "mlp": Path("configs/mlp_regression_config.yaml"),
     "lnn": Path("configs/lnn_regression_config.yaml"),
+}
+
+LEGACY_CHECKPOINT_CONFIG_PATHS = {
+    "gru": Path("configs/legacy/gru_checkpoint_config.yaml"),
+    "lstm": Path("configs/legacy/lstm_checkpoint_config.yaml"),
+    "tcn": Path("configs/legacy/tcn_checkpoint_config.yaml"),
+    "mlp": Path("configs/legacy/mlp_checkpoint_config.yaml"),
 }
 
 MODEL_TITLES = {
@@ -85,26 +95,81 @@ def load_model_config(
     return config
 
 
+def load_legacy_checkpoint_config(model_name: str) -> dict[str, Any] | None:
+    path = LEGACY_CHECKPOINT_CONFIG_PATHS.get(model_name)
+    if path is None or not path.exists():
+        return None
+    return load_yaml_config(path)
+
+
+def _merge_supported_runtime_config(
+    model_name: str,
+    canonical_config: dict[str, Any],
+    override_config: dict[str, Any],
+    *,
+    source_label: str,
+) -> tuple[dict[str, Any], list[str]]:
+    supported_override, ignored_paths = extract_supported_config(
+        model_name, override_config
+    )
+    runtime_config = deep_merge_dicts(canonical_config, supported_override)
+    if model_name == "lnn" and "tau_mode" not in supported_override.get("model", {}):
+        runtime_config["model"]["tau_mode"] = "mean_legacy"
+    validate_model_config(model_name, runtime_config, source_label=source_label)
+    return runtime_config, ignored_paths
+
+
 def resolve_runtime_config(
     model_name: str,
     canonical_config: dict[str, Any],
     checkpoint: dict[str, Any],
 ) -> tuple[dict[str, Any], str]:
     checkpoint_config = checkpoint.get("config")
-    if checkpoint_config is None:
+    if checkpoint_config is not None:
+        runtime_config, ignored_paths = _merge_supported_runtime_config(
+            model_name,
+            canonical_config,
+            checkpoint_config,
+            source_label=f"{model_name}:checkpoint_runtime",
+        )
+        if ignored_paths:
+            logger.info(
+                f"[{model_name}] ignored unsupported checkpoint config keys: "
+                f"{', '.join(ignored_paths)}"
+            )
+        config_source = (
+            "checkpoint_compat"
+            if model_name == "lnn"
+            and "tau_mode" not in checkpoint_config.get("model", {})
+            else "checkpoint"
+        )
+        logger.info(f"[{model_name}] runtime config source: {config_source}")
+        return runtime_config, config_source
+
+    legacy_config = load_legacy_checkpoint_config(model_name)
+    if legacy_config is not None:
+        runtime_config, ignored_paths = _merge_supported_runtime_config(
+            model_name,
+            canonical_config,
+            legacy_config,
+            source_label=f"{model_name}:legacy_sidecar_runtime",
+        )
+        if ignored_paths:
+            logger.info(
+                f"[{model_name}] ignored unsupported legacy config keys: "
+                f"{', '.join(ignored_paths)}"
+            )
         logger.info(
-            f"[{model_name}] runtime config source: canonical "
+            f"[{model_name}] runtime config source: legacy_sidecar "
             "(checkpoint is missing embedded config)"
         )
-        return deepcopy(canonical_config), "canonical"
+        return runtime_config, "legacy_sidecar"
 
-    validate_model_config(
-        model_name,
-        checkpoint_config,
-        source_label=f"{model_name}:checkpoint_runtime",
+    logger.info(
+        f"[{model_name}] runtime config source: canonical "
+        "(checkpoint is missing embedded config and no legacy sidecar was found)"
     )
-    logger.info(f"[{model_name}] runtime config source: checkpoint")
-    return deepcopy(checkpoint_config), "checkpoint"
+    return deepcopy(canonical_config), "canonical"
 
 
 def get_runtime_seed(config: dict[str, Any]) -> int:
@@ -129,8 +194,9 @@ def build_run_metadata(
     model_name: str,
     device: torch.device,
     split_descriptions: list[dict[str, Any]],
+    model: torch.nn.Module | None = None,
 ) -> dict[str, Any]:
-    return {
+    metadata = {
         "model_name": model_name,
         "seed": get_runtime_seed(config),
         "device": str(device),
@@ -140,6 +206,9 @@ def build_run_metadata(
         "dataset_fingerprint": build_dataset_fingerprint(split_descriptions),
         "data_splits": split_descriptions,
     }
+    if model is not None:
+        metadata["num_parameters"] = count_parameters(model)
+    return metadata
 
 
 def build_ensemble_run_metadata(
@@ -207,15 +276,36 @@ def create_model(model_name: str, config: dict[str, Any]) -> torch.nn.Module:
     if model_name == "lnn":
         return LNNRegression(
             input_size=model_config["input_size"],
+            encoder_input_size=model_config.get("encoder_input_size"),
             fast_units=model_config["fast_units"],
             slow_units=model_config["slow_units"],
             hidden_size=model_config["hidden_size"],
             num_depth_outputs=model_config["num_depth_outputs"],
             dropout=model_config["dropout"],
-            tau_mode=model_config.get("tau_mode", "stepwise"),
+            tau_mode=model_config.get("tau_mode", "mean_legacy"),
             use_fast_path=model_config.get("use_fast_path", True),
             use_slow_path=model_config.get("use_slow_path", True),
             use_attention=model_config.get("use_attention", True),
+            use_learnable_slow_tau=model_config.get("use_learnable_slow_tau", False),
+            slow_tau_init=float(model_config.get("slow_tau_init", 5.0)),
+            use_path_layer_norm=model_config.get("use_path_layer_norm", False),
+            per_neuron_tau=model_config.get("per_neuron_tau", False),
+            fast_tau_min=float(model_config.get("fast_tau_min", 0.01)),
+            fast_tau_max=float(model_config.get("fast_tau_max", 10.0)),
+            use_separate_depth_heads=model_config.get(
+                "use_separate_depth_heads", False
+            ),
+            depth_head_hidden_size=int(model_config.get("depth_head_hidden_size", 64)),
+            pump_head_target_index=model_config.get("pump_head_target_index"),
+            pump_head_feature_indices=model_config.get("pump_head_feature_indices"),
+            use_pump_branch=model_config.get("use_pump_branch", False),
+            pump_branch_input_indices=model_config.get("pump_branch_input_indices"),
+            pump_branch_fast_units=int(model_config.get("pump_branch_fast_units", 16)),
+            pump_branch_slow_units=int(model_config.get("pump_branch_slow_units", 16)),
+            pump_branch_hidden_size=int(
+                model_config.get("pump_branch_hidden_size", 32)
+            ),
+            pump_branch_use_attention=model_config.get("pump_branch_use_attention"),
         )
     raise ValueError(f"Unsupported model name: {model_name}")
 
@@ -236,6 +326,12 @@ def get_lnn_loss_weights(config: dict[str, Any]) -> dict[str, float]:
         "depth_weight": float(config["loss"]["depth_weight"]),
         "overflow_weight": float(config["loss"]["overflow_weight"]),
         "intensity_weight": float(config["loss"]["intensity_weight"]),
+        "flood_weight": float(config["loss"].get("flood_weight", 1.0)),
+        "pos_weight": (
+            None
+            if config["loss"].get("pos_weight") is None
+            else float(config["loss"]["pos_weight"])
+        ),
     }
 
 
@@ -272,11 +368,41 @@ def build_scheduler(
         return None
 
     scheduler_type = str(scheduler_config["type"]).lower()
+    warmup_epochs = int(scheduler_config.get("warmup_epochs", 0) or 0)
+    warmup_start_factor = float(scheduler_config.get("warmup_start_factor", 0.1) or 0.1)
+
+    def _wrap_with_warmup(
+        base_scheduler: optim.lr_scheduler.LRScheduler,
+    ) -> optim.lr_scheduler.LRScheduler:
+        if warmup_epochs <= 0:
+            return base_scheduler
+        if not (0.0 < warmup_start_factor <= 1.0):
+            raise ValueError(
+                "training.scheduler.warmup_start_factor must be in (0, 1], "
+                f"got {warmup_start_factor}."
+            )
+        warmup_scheduler = optim.lr_scheduler.LinearLR(
+            optimizer,
+            start_factor=warmup_start_factor,
+            end_factor=1.0,
+            total_iters=warmup_epochs,
+        )
+        return optim.lr_scheduler.SequentialLR(
+            optimizer,
+            schedulers=[warmup_scheduler, base_scheduler],
+            milestones=[warmup_epochs],
+        )
+
     if scheduler_type in {
         "reduce_on_plateau",
         "reduce_lr_on_plateau",
         "reducelronplateau",
     }:
+        if warmup_epochs > 0:
+            raise ValueError(
+                "Warmup is not supported with ReduceLROnPlateau in the "
+                "publication-safe trainer."
+            )
         return optim.lr_scheduler.ReduceLROnPlateau(
             optimizer,
             mode="min",
@@ -288,20 +414,24 @@ def build_scheduler(
         eta_min = float(
             scheduler_config.get("eta_min", scheduler_config.get("min_lr", 0.0))
         )
-        return optim.lr_scheduler.CosineAnnealingLR(
-            optimizer,
-            T_max=int(config["training"]["epochs"]),
-            eta_min=eta_min,
+        return _wrap_with_warmup(
+            optim.lr_scheduler.CosineAnnealingLR(
+                optimizer,
+                T_max=int(config["training"]["epochs"]),
+                eta_min=eta_min,
+            )
         )
     if scheduler_type in {"cosine_warm_restarts", "cosineannealingwarmrestarts"}:
         eta_min = float(
             scheduler_config.get("eta_min", scheduler_config.get("min_lr", 0.0))
         )
-        return optim.lr_scheduler.CosineAnnealingWarmRestarts(
-            optimizer,
-            T_0=int(scheduler_config.get("T_0", 10)),
-            T_mult=int(scheduler_config.get("T_mult", 2)),
-            eta_min=eta_min,
+        return _wrap_with_warmup(
+            optim.lr_scheduler.CosineAnnealingWarmRestarts(
+                optimizer,
+                T_0=int(scheduler_config.get("T_0", 10)),
+                T_mult=int(scheduler_config.get("T_mult", 2)),
+                eta_min=eta_min,
+            )
         )
     raise ValueError(f"Unsupported scheduler type: {scheduler_type}")
 
@@ -322,18 +452,34 @@ def scheduler_requires_metric(config: dict[str, Any]) -> bool:
 def get_early_stopping_settings(config: dict[str, Any]) -> dict[str, float] | None:
     training_config = config["training"]
     early_stopping = training_config.get("early_stopping")
-    if early_stopping is None:
+    legacy_patience = training_config.get("early_stopping_patience")
+
+    if early_stopping is not None and legacy_patience is not None:
+        warnings.warn(
+            "Both training.early_stopping and training.early_stopping_patience are "
+            "set; nested training.early_stopping takes precedence.",
+            stacklevel=2,
+        )
+
+    if early_stopping is not None:
+        return {
+            "patience": int(early_stopping["patience"]),
+            "min_delta": float(early_stopping.get("min_delta", 0.0)),
+        }
+
+    if legacy_patience is None:
         return None
 
     return {
-        "patience": int(early_stopping["patience"]),
-        "min_delta": float(early_stopping.get("min_delta", 0.0)),
+        "patience": int(legacy_patience),
+        "min_delta": float(training_config.get("early_stopping_min_delta", 0.0)),
     }
 
 
 def load_split_data_for_config(config: dict[str, Any], split: str) -> dict[str, Any]:
     use_reduced = config["data"].get("use_reduced", True)
-    data = load_regression_data(split, use_reduced=use_reduced)
+    data_dir = config["data"].get("data_dir")
+    data = load_regression_data(split, use_reduced=use_reduced, data_dir=data_dir)
     validate_split_runtime_contract(split, data, config)
     return data
 
@@ -342,7 +488,8 @@ def describe_split_data_for_config(
     config: dict[str, Any], split: str
 ) -> dict[str, Any]:
     use_reduced = config["data"].get("use_reduced", True)
-    return describe_regression_data(split, use_reduced=use_reduced)
+    data_dir = config["data"].get("data_dir")
+    return describe_regression_data(split, use_reduced=use_reduced, data_dir=data_dir)
 
 
 def validate_split_runtime_contract(
@@ -434,20 +581,40 @@ def _move_batch_to_device(
 def _compute_lnn_loss(
     outputs: tuple[torch.Tensor, torch.Tensor, torch.Tensor],
     batch: dict[str, torch.Tensor],
-    loss_weights: dict[str, float],
+    loss_weights: dict[str, float | None],
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor], torch.Tensor]:
     pred_depths, pred_overflow, pred_intensity = outputs
-    depth_loss = F.mse_loss(pred_depths, batch["y_depths"])
-    overflow_loss = F.binary_cross_entropy(
-        pred_overflow, batch["y_overflow"].unsqueeze(1)
+    depth_mse = (pred_depths - batch["y_depths"]) ** 2
+    flood_weight = float(loss_weights.get("flood_weight", 1.0) or 1.0)
+    depth_weights = torch.where(
+        batch["flood_mask"] > 0.5,
+        flood_weight,
+        1.0,
+    ).unsqueeze(1)
+    depth_loss = (depth_mse * depth_weights).mean()
+
+    true_overflow = batch["y_overflow"].unsqueeze(1)
+    overflow_bce = F.binary_cross_entropy(
+        pred_overflow.clamp(1e-7, 1.0 - 1e-7),
+        true_overflow,
+        reduction="none",
     )
-    intensity_loss = F.mse_loss(
-        pred_intensity, batch["y_overflow"].unsqueeze(1).float()
-    )
+    pos_weight = loss_weights.get("pos_weight")
+    if pos_weight is not None:
+        class_weights = torch.where(true_overflow > 0.5, float(pos_weight), 1.0)
+        overflow_loss = (overflow_bce * class_weights).mean()
+    else:
+        overflow_loss = overflow_bce.mean()
+
+    intensity_weight = float(loss_weights.get("intensity_weight", 0.0) or 0.0)
+    if intensity_weight > 0.0:
+        intensity_loss = F.mse_loss(pred_intensity, true_overflow.float())
+    else:
+        intensity_loss = pred_intensity.new_tensor(0.0)
     total_loss = (
         loss_weights["depth_weight"] * depth_loss
         + loss_weights["overflow_weight"] * overflow_loss
-        + loss_weights["intensity_weight"] * intensity_loss
+        + intensity_weight * intensity_loss
     )
     return (
         total_loss,
@@ -644,6 +811,7 @@ def train_model(
                         model_name=model_name,
                         device=device,
                         split_descriptions=split_descriptions,
+                        model=model,
                     ),
                 }
                 if scheduler is not None:
@@ -670,6 +838,7 @@ def train_model(
             model_name=model_name,
             device=device,
             split_descriptions=split_descriptions,
+            model=model,
         ),
     }
     return model, summary
@@ -724,7 +893,9 @@ def load_trained_model(
     resolved_checkpoint_path = (
         Path(checkpoint_path)
         if checkpoint_path is not None
-        else resolve_checkpoint_path(canonical_config["output"]["checkpoint_dir"])
+        else resolve_checkpoint_path(
+            canonical_config["output"]["checkpoint_dir"], model_name
+        )
     )
     checkpoint = torch.load(
         resolved_checkpoint_path,
@@ -947,10 +1118,52 @@ def describe_model_architecture(model_name: str, config: dict[str, Any]) -> str:
             f"batch_norm={model_config.get('use_batch_norm', True)}"
         )
     if model_name == "lnn":
-        return (
-            f"fast={model_config['fast_units']}, slow={model_config['slow_units']}, "
-            f"hidden={model_config['hidden_size']}"
-        )
+        parts = [
+            f"fast={model_config['fast_units']}",
+            f"slow={model_config['slow_units']}",
+            f"hidden={model_config['hidden_size']}",
+            f"tau_mode={model_config.get('tau_mode', 'mean_legacy')}",
+        ]
+        if model_config.get("use_learnable_slow_tau", False):
+            parts.append(
+                f"learnable_slow_tau={float(model_config.get('slow_tau_init', 5.0)):.1f}"
+            )
+        if model_config.get("use_path_layer_norm", False):
+            parts.append("path_layer_norm=True")
+        if model_config.get("per_neuron_tau", False):
+            parts.append("per_neuron_tau=True")
+        if (
+            float(model_config.get("fast_tau_min", 0.01)) != 0.01
+            or float(model_config.get("fast_tau_max", 10.0)) != 10.0
+        ):
+            parts.append(
+                "fast_tau=["
+                f"{float(model_config.get('fast_tau_min', 0.01)):.2f}, "
+                f"{float(model_config.get('fast_tau_max', 10.0)):.2f}]"
+            )
+        if model_config.get("use_separate_depth_heads", False):
+            parts.append("separate_depth_heads=True")
+        if model_config.get("encoder_input_size") not in {
+            None,
+            model_config["input_size"],
+        }:
+            parts.append(
+                f"encoder_input={int(model_config['encoder_input_size'])}/"
+                f"{int(model_config['input_size'])}"
+            )
+        if model_config.get("pump_head_feature_indices"):
+            parts.append(
+                "pump_head=("
+                f"target={int(model_config.get('pump_head_target_index', -1))}, "
+                f"features={len(model_config['pump_head_feature_indices'])})"
+            )
+        if model_config.get("use_pump_branch", False):
+            parts.append(
+                "pump_branch=("
+                f"features={len(model_config.get('pump_branch_input_indices', []))}, "
+                f"hidden={int(model_config.get('pump_branch_hidden_size', 32))})"
+            )
+        return ", ".join(parts)
     return model_name
 
 
@@ -1037,11 +1250,15 @@ def select_overflow_threshold(
         "checkpoint_path": str(artifact["checkpoint_path"]),
         "canonical_config_path": str(artifact["canonical_config_path"]),
         "config_source": artifact["config_source"],
+        "num_parameters": int(
+            artifact["checkpoint"].get("n_params", count_parameters(artifact["model"]))
+        ),
         "runtime_metadata": build_run_metadata(
             config=runtime_config,
             model_name=model_name,
             device=device,
             split_descriptions=[split_description],
+            model=artifact["model"],
         ),
     }
     resolved_output_path = resolve_threshold_artifact_path(
@@ -1127,11 +1344,15 @@ def build_evaluation_payload(
         "config_source": artifact["config_source"],
         "use_reduced": bool(runtime_config["data"].get("use_reduced", True)),
         "input_size": int(runtime_config["model"]["input_size"]),
+        "num_parameters": int(
+            artifact["checkpoint"].get("n_params", count_parameters(artifact["model"]))
+        ),
         "runtime_metadata": build_run_metadata(
             config=runtime_config,
             model_name=model_name,
             device=device,
             split_descriptions=[split_description],
+            model=artifact["model"],
         ),
     }
 
