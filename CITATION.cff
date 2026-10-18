@@ -1,0 +1,40 @@
+cff-version: 1.2.0
+message: "If you use this software or benchmark snapshot, please cite the associated journal article in MDPI Water."
+title: "ltc-hydrology-flood-prediction: Companion Code and Benchmark Snapshot for Liquid Time-Constant Networks in Urban Drainage Forecasting"
+type: software
+authors:
+  - family-names: "Buczyński"
+    given-names: "Rafał"
+    orcid: "https://orcid.org/0000-0002-0956-0325"
+    affiliation: "Department of Water Supply and Sewage Systems, Faculty of Civil Engineering and Environmental Sciences, Bialystok University of Technology, 15-351 Bialystok, Poland"
+repository-code: "https://github.com/BuczynskiRafal/ltc-hydrology-flood-prediction"
+url: "https://www.mdpi.com/2073-4441/18/17/2169"
+license: MIT
+date-released: "2026-09-02"
+keywords:
+  - "liquid time-constant networks"
+  - "liquid neural networks"
+  - "urban drainage"
+  - "water level forecasting"
+  - "flash flood prediction"
+  - "Bellinge dataset"
+  - "hydrological modeling"
+preferred-citation:
+  type: article
+  authors:
+    - family-names: "Buczyński"
+      given-names: "Rafał"
+      orcid: "https://orcid.org/0000-0002-0956-0325"
+      affiliation: "Department of Water Supply and Sewage Systems, Faculty of Civil Engineering and Environmental Sciences, Bialystok University of Technology, 15-351 Bialystok, Poland"
+  title: "Liquid Time-Constant Networks for Water Level Forecasting in Urban Drainage: Adaptive Time-Scale Modeling of Hydrological Dynamics"
+  journal: "Water"
+  publisher:
+    name: "MDPI AG"
+  issn: "2073-4441"
+  volume: 18
+  issue: 17
+  start: 2169
+  year: 2026
+  month: 9
+  doi: "10.3390/w18172169"
+  url: "https://www.mdpi.com/2073-4441/18/17/2169"

@@ -203,10 +203,10 @@ _DELETED_WRAPPERS = [
 
 
 class TestReadmeConsistency(unittest.TestCase):
-    """Verify README does not reference deleted wrapper files."""
+    """Verify README and CITATION.cff consistency and publication metadata."""
 
     def test_no_stale_wrapper_references(self):
-        content = (PROJECT_ROOT / "README.md").read_text()
+        content = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
         for wrapper in _DELETED_WRAPPERS:
             self.assertNotIn(
                 wrapper,
@@ -214,6 +214,61 @@ class TestReadmeConsistency(unittest.TestCase):
                 f"README.md still references deleted wrapper: {wrapper}",
             )
 
+    def test_publication_metadata_and_citations(self):
+        content = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
+        required_snippets = [
+            "10.3390/w18172169",
+            "https://www.mdpi.com/2073-4441/18/17/2169",
+            "https://github.com/BuczynskiRafal/ltc-hydrology-flood-prediction",
+            "0000-0002-0956-0325",
+            "Liquid Time-Constant Networks for Water Level Forecasting in Urban Drainage: Adaptive Time-Scale Modeling of Hydrological Dynamics",
+            "@article{Buczynski2026Water,",
+            "@software{Buczynski2026LTCHydrologyRepo,",
+            "WI/WB-IIŚ/9/2026",
+        ]
+        for snippet in required_snippets:
+            self.assertIn(
+                snippet,
+                content,
+                f"README.md is missing required publication metadata: {snippet}",
+            )
+
+    def test_citation_cff_valid(self):
+        import yaml
+
+        cff_path = PROJECT_ROOT / "CITATION.cff"
+        self.assertTrue(cff_path.is_file(), "CITATION.cff must exist in project root")
+        data = yaml.safe_load(cff_path.read_text(encoding="utf-8"))
+        self.assertEqual(data.get("cff-version"), "1.2.0")
+        self.assertEqual(
+            data.get("repository-code"),
+            "https://github.com/BuczynskiRafal/ltc-hydrology-flood-prediction",
+        )
+        pref = data.get("preferred-citation", {})
+        self.assertEqual(pref.get("type"), "article")
+        self.assertEqual(pref.get("doi"), "10.3390/w18172169")
+        self.assertEqual(pref.get("url"), "https://www.mdpi.com/2073-4441/18/17/2169")
+        self.assertEqual(pref.get("journal"), "Water")
+        self.assertEqual(pref.get("volume"), 18)
+        self.assertEqual(pref.get("issue"), 17)
+        self.assertEqual(pref.get("start"), 2169)
+        self.assertEqual(pref.get("year"), 2026)
+
+    def test_readme_relative_links_exist(self):
+        import re
+
+        content = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
+        targets = re.findall(r"\[[^\]]+\]\(([^)]+)\)", content)
+        for target in targets:
+            if target.startswith(("http://", "https://", "mailto:", "#")):
+                continue
+            rel_path = target.split("#", 1)[0]
+            self.assertTrue(
+                (PROJECT_ROOT / rel_path).exists(),
+                f"README.md contains broken relative link: {rel_path}",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
+
