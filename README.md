@@ -21,14 +21,16 @@ Official source code, model configurations, evaluation pipeline, and benchmark s
 Liquid Time-Constant networks (**LNNs**), recurrent neural architectures with adaptive, input-dependent time constants ($\tau$), are evaluated for short-term water level forecasting in an urban drainage system:
 
 - **Domain & Dataset:** Ten-year measurement dataset (`2010–2019`) from the Bellinge urban drainage catchment (Odense, Denmark), forecasting water levels across 5 target sensors: 4 gravity-driven passive sensors (`G71F05R_LevelBasin`, `G71F05R_LevelInlet`, `G71F05R_position`, `G71F68Y_LevelPS`) and 1 intermittently operated pumping station sensor (`G80F13P_LevelPS`).
-- **Baselines & Variants:** Benchmarked against Gated Recurrent Unit (`GRU`), Long Short-Term Memory (`LSTM`), Temporal Convolutional Network (`TCN`), and Multilayer Perceptron (`MLP`) baselines alongside three LNN configurations (`stable_seed42`, `pump_aware_global`, and the dual-branch `DB-LNN` / `dual_branch`).
-- **Central Finding:** While single-pathway LNNs accurately represent the continuous response of gravity-driven network elements (`non_pump_NSE = 0.9442`), intermittent threshold-controlled pumping causes pathway interference (`pump_NSE = 0.0135`). Isolating the pump pathway in the **dual-branch LNN (`DB-LNN`)** resolves this interference, achieving the highest overall accuracy in the benchmark (**mean `NSE = 0.8489`**, reported as `0.849` in the manuscript abstract), lifting pump-sensor `NSE` to **`0.4594`** (vs. `0.2792` for `GRU`) while preserving **`0.9463`** mean `NSE` across the four non-pump sensors.
+- **Baselines & LNN Variants:** Benchmarked against Gated Recurrent Unit (`GRU`), Long Short-Term Memory (`LSTM`), Temporal Convolutional Network (`TCN`), and Multilayer Perceptron (`MLP`) baselines alongside the primary **Single-Branch LNN (`SB-LNN`**, tracked in repository snapshots as `best stable LNN` / `stable_seed42`), a shared-encoder pump-aware variant (`pump_aware_global`), and the **Dual-Branch LNN (`DB-LNN` / `dual_branch`)**.
+- **Central Findings:**
+  1. **Primary `SB-LNN` Architecture & Adaptive Time Constants ($\tau$):** The core single-branch LNN (`SB-LNN`) accurately captures the continuous hydraulic response of the gravity-driven part of the drainage network (**`non_pump_NSE = 0.9442`**) without substantial degradation during flash-flood events, while its input-dependent time constants ($\tau$) distinguish system-wide hydraulic processes from local control actions and provide interpretable diagnostics of the model's internal response scale.
+  2. **Addressing Pumping-Station Discontinuity with `DB-LNN`:** The principal challenge for the single-pathway `SB-LNN` is the intermittent, threshold-controlled operation of the pumping station (`G80F13P_LevelPS`, where `pump_NSE = 0.0135`). Isolating the pump pathway into a dedicated branch in **`DB-LNN`** eliminates cross-pathway interference between continuous gravity-driven dynamics and local switching dynamics, raising `pump_NSE` to **`0.4594`** (vs. `0.2792` for `GRU`) and achieving the highest overall benchmark accuracy (**mean `NSE = 0.8489`**, reported as `0.849` in the manuscript abstract) while preserving **`0.9463`** mean `NSE` across the four gravity-driven sensors.
 
 ---
 
 ## Citation
 
-If you use this codebase, model architectures (`HierarchicalLTC`, `FlashFloodGate`, `DB-LNN`), configurations, or benchmark tables in your research, please cite the published *Water* article (and optionally the software repository). GitHub's native **"Cite this repository"** button is also enabled via [`CITATION.cff`](CITATION.cff).
+If you use this codebase, model architectures (`HierarchicalLTC`, `FlashFloodGate`, `SB-LNN`, `DB-LNN`), configurations, or benchmark tables in your research, please cite the published *Water* article (and optionally the software repository). GitHub's native **"Cite this repository"** button is also enabled via [`CITATION.cff`](CITATION.cff).
 
 ### 1. Journal Article (Primary Citation)
 
@@ -81,11 +83,11 @@ The table below links the concepts, models, and experimental analyses reported i
 
 | Manuscript Component | Repository Location | Description |
 |---|---|---|
-| **LNN Architecture (`HierarchicalLTC`, `FlashFloodGate`, `DB-LNN`)** | `src/models/lnn_regression.py` | Fast/slow multi-scale LTC cells, stepwise adaptive $\tau$, flood-event gating, separate sensor heads, and dedicated attention-based pump branch |
+| **LNN Architecture (`HierarchicalLTC`, `FlashFloodGate`, `SB-LNN`, `DB-LNN`)** | `src/models/lnn_regression.py` | Fast/slow multi-scale LTC cells, stepwise adaptive $\tau$, flood-event gating, separate sensor heads (`SB-LNN`), and optional attention-based pump branch (`DB-LNN`) |
 | **Classical Baselines (`GRU`, `LSTM`, `TCN`, `MLP`)** | `src/models/{gru,lstm,tcn,mlp}_regression.py` | Reference sequence and feedforward regression models |
-| **Dual-Branch LNN (`DB-LNN` / `dual-branch LNN`) Config** | `notebooks/article_materials_20260419/lnn_variants/dual_branch/config.yaml` | Winning configuration (`input_size=36`, main encoder `31` inputs, pump branch `5` inputs `[31..35]` with attention) |
-| **Pump-Aware Global LNN Config** | `notebooks/article_materials_20260419/lnn_variants/pump_aware_global/config.yaml` | Single-pathway LNN receiving all 36 features (`31` base + `5` pump features) |
-| **Best Stable Base LNN Config** | `notebooks/article_materials_20260419/lnn_variants/stable_seed42/config.yaml` | Depth-only LNN on 31 base predictors (`per_neuron_tau=true`, separate heads, `seed=42`) |
+| **Primary Single-Branch LNN (`SB-LNN` / `best stable LNN`) Config** | `notebooks/article_materials_20260419/lnn_variants/stable_seed42/config.yaml` | Primary single-branch depth-only LNN on 31 base predictors (`per_neuron_tau=true`, separate heads, `seed=42`) |
+| **Dual-Branch LNN (`DB-LNN` / `dual-branch LNN`) Config** | `notebooks/article_materials_20260419/lnn_variants/dual_branch/config.yaml` | Architectural extension isolating the pump pathway (`input_size=36`, main encoder `31` inputs, dedicated pump branch `5` inputs `[31..35]` with attention) |
+| **Pump-Aware Global LNN Config** | `notebooks/article_materials_20260419/lnn_variants/pump_aware_global/config.yaml` | Single-pathway ablation feeding all 36 features (`31` base + `5` pump features) through a shared encoder |
 | **Multitask Baseline Configs & Results** | `configs/{gru,lstm,tcn,mlp}_regression_config.yaml`, `notebooks/article_materials_20260419/baselines/` | Canonical configs, evaluation manifests, and test metrics for `GRU`, `LSTM`, `TCN`, `MLP` |
 | **Depth-Only Baseline Control Study** | `configs/baseline_depth_only/`, `experiments/run_baseline_depth_only_benchmark.py` | Isolates objective-function effects (`depth_weight=1.0`, `overflow_weight=0.0`, `flood_weight=1.0`) across classical baselines |
 | **Main Benchmark Tables** | `notebooks/article_materials_20260419/benchmark/` | `article_main_table.csv`, `grouped_summary.csv`, per-sensor `NSE`/`MAE`/`RMSE` pivots, and `comparison_summary.json` |
@@ -104,7 +106,7 @@ Aggregated and grouped test-set (`2019`, $n = 9{,}375$ windows) metrics from [`n
 |---|---:|---:|---:|---:|---:|---:|---:|
 | **dual-branch LNN (`DB-LNN`)** | **0.8489** | **0.1071** | **0.0492** | **0.9463** | **0.4594** | **0.1699** | **0.1251** |
 | GRU | 0.7831 | 0.1257 | 0.0701 | 0.9091 | 0.2792 | 0.1962 | 0.1480 |
-| best stable LNN | 0.7581 | 0.1191 | 0.0664 | 0.9442 | 0.0135 | 0.2295 | 0.1917 |
+| **best stable LNN (`SB-LNN`)** | 0.7581 | 0.1191 | 0.0664 | 0.9442 | 0.0135 | 0.2295 | 0.1917 |
 | TCN | 0.7302 | 0.1327 | 0.0760 | 0.9098 | 0.0115 | 0.2298 | 0.1958 |
 | LSTM | 0.7157 | 0.1412 | 0.0689 | 0.8634 | 0.1248 | 0.2162 | 0.1596 |
 | MLP | 0.6690 | 0.1356 | 0.0800 | 0.8440 | -0.0311 | 0.2347 | 0.1979 |
@@ -116,7 +118,7 @@ Values from [`notebooks/article_materials_20260419/benchmark/nse_per_sensor_pivo
 | Model | `G71F05R_LevelBasin` | `G71F05R_LevelInlet` | `G71F05R_position` | `G71F68Y_LevelPS` | `G80F13P_LevelPS` (Pump) |
 |---|---:|---:|---:|---:|---:|
 | **dual-branch LNN (`DB-LNN`)** | 0.9785 | **0.8924** | 0.9179 | **0.9966** | **0.4594** |
-| best stable LNN | **0.9795** | 0.8802 | 0.9210 | 0.9961 | 0.0135 |
+| **best stable LNN (`SB-LNN`)** | **0.9795** | 0.8802 | 0.9210 | 0.9961 | 0.0135 |
 | GRU | 0.9736 | 0.7572 | 0.9125 | 0.9930 | 0.2792 |
 | TCN | 0.9740 | 0.7721 | 0.9001 | 0.9931 | 0.0115 |
 | LSTM | 0.9723 | 0.7993 | 0.6876 | 0.9945 | 0.1248 |
@@ -135,9 +137,9 @@ Additional pivot tables tracked in Git:
 
 | Family / Variant | Config Snapshot | Architectural Notes |
 |---|---|---|
-| **LNN — dual-branch (`DB-LNN`, winner)** | [`notebooks/article_materials_20260419/lnn_variants/dual_branch/config.yaml`](notebooks/article_materials_20260419/lnn_variants/dual_branch/config.yaml) | Main encoder (`31` features, `32` fast + `32` slow units, hidden `128`) + dedicated pump LTC branch (`5` features `[31..35]`, `16` fast + `16` slow units, hidden `32`, `pump_branch_use_attention=true`), per-neuron $\tau \in [0.05, 3.0]$ |
-| **LNN — pump-aware global** | [`notebooks/article_materials_20260419/lnn_variants/pump_aware_global/config.yaml`](notebooks/article_materials_20260419/lnn_variants/pump_aware_global/config.yaml) | Shared encoder processing all `36` features (`31` base + `5` pump features), per-neuron $\tau$, separate sensor heads |
-| **LNN — best stable (`seed42`)** | [`notebooks/article_materials_20260419/lnn_variants/stable_seed42/config.yaml`](notebooks/article_materials_20260419/lnn_variants/stable_seed42/config.yaml) | Depth-only LNN on `31` base features (`32` fast + `32` slow units, hidden `128`), per-neuron $\tau$, separate sensor heads |
+| **LNN — single-branch (`SB-LNN` / `stable_seed42`, primary)** | [`notebooks/article_materials_20260419/lnn_variants/stable_seed42/config.yaml`](notebooks/article_materials_20260419/lnn_variants/stable_seed42/config.yaml) | Primary single-branch depth-only LNN on `31` base features (`32` fast + `32` slow units, hidden `128`), per-neuron $\tau \in [0.05, 3.0]$, separate sensor heads |
+| **LNN — dual-branch (`DB-LNN` / `dual_branch`, pump-pathway extension)** | [`notebooks/article_materials_20260419/lnn_variants/dual_branch/config.yaml`](notebooks/article_materials_20260419/lnn_variants/dual_branch/config.yaml) | Extends `SB-LNN` (`31` features, `32` fast + `32` slow units, hidden `128`) with a dedicated pump LTC branch (`5` features `[31..35]`, `16` fast + `16` slow units, hidden `32`, `pump_branch_use_attention=true`) to isolate pumping-station switching dynamics |
+| **LNN — pump-aware global** | [`notebooks/article_materials_20260419/lnn_variants/pump_aware_global/config.yaml`](notebooks/article_materials_20260419/lnn_variants/pump_aware_global/config.yaml) | Single-pathway ablation processing all `36` features (`31` base + `5` pump features) through the shared encoder |
 | **LNN (base reference)** | [`configs/lnn_regression_config.yaml`](configs/lnn_regression_config.yaml) | Base `HierarchicalLTC` reference configuration (`128` fast + `128` slow units, hidden `320`) |
 | **GRU** | [`configs/gru_regression_config.yaml`](configs/gru_regression_config.yaml) · [`configs/baseline_depth_only/gru_depth_only_config.yaml`](configs/baseline_depth_only/gru_depth_only_config.yaml) | 3 layers, hidden size `128`, dropout `0.2` (multitask and depth-only variants) |
 | **LSTM** | [`configs/lstm_regression_config.yaml`](configs/lstm_regression_config.yaml) · [`configs/baseline_depth_only/lstm_depth_only_config.yaml`](configs/baseline_depth_only/lstm_depth_only_config.yaml) | 2 layers, hidden size `128`, dropout `0.2` (multitask and depth-only variants) |
@@ -199,17 +201,23 @@ python -m experiments.cli evaluate lnn
 python -m experiments.evaluate_release --model gru
 ```
 
-   To reproduce the winning **dual-branch LNN (`DB-LNN`)** end-to-end using its exact manuscript configuration:
+   To reproduce the primary **Single-Branch LNN (`SB-LNN` / `stable_seed42`)** or the **Dual-Branch LNN (`DB-LNN` / `dual_branch`)** end-to-end using their exact manuscript configurations:
 
 ```bash
+# Primary Single-Branch LNN (SB-LNN)
+python -m experiments.cli train lnn \
+  --config notebooks/article_materials_20260419/lnn_variants/stable_seed42/config.yaml
+python -m experiments.cli evaluate lnn \
+  --config notebooks/article_materials_20260419/lnn_variants/stable_seed42/config.yaml
+
+# Dual-Branch LNN (DB-LNN, pump-pathway extension)
 python -m experiments.cli train lnn \
   --config notebooks/article_materials_20260419/lnn_variants/dual_branch/config.yaml
-
 python -m experiments.cli evaluate lnn \
   --config notebooks/article_materials_20260419/lnn_variants/dual_branch/config.yaml
 ```
 
-   The same `--config` flag reproduces `stable_seed42` and `pump_aware_global` from their snapshots under `notebooks/article_materials_20260419/lnn_variants/`.
+   The same `--config` flag reproduces `pump_aware_global` from its snapshot under `notebooks/article_materials_20260419/lnn_variants/`.
 
 4. **Rebuild the manuscript benchmark comparison tables:**
 
@@ -260,9 +268,9 @@ Runtime-sized binary assets (raw inputs in `downloaded/`, materialized `.npy` te
 - **Final Benchmark Folder (`final_article_benchmark_dual_branch`):** [Google Drive Folder](https://drive.google.com/drive/folders/12p2XcHdqfhX3uWg9Q6Hi6TKpuMWFSA-a)
   - [`per_sensor_metrics.csv`](https://drive.google.com/file/d/19joS3jvEF9Hs_Rss7BA6xc2pbJXL3ZQJ/view?usp=drivesdk)
   - [`comparison_summary.json`](https://drive.google.com/file/d/1ubxNcp2SBURDy08OzaH2wWyoBUmLxdo5/view?usp=drivesdk)
-- **Dual-Branch LNN (`DB-LNN`, winner):** [Folder](https://drive.google.com/drive/folders/1NllHUEhvoFVPFT2wMXuu8mzve2ZJcciU) · [Config](https://drive.google.com/file/d/1UJlaql60OgWczRsjiCOpSPg5LY9lIF5Y/view?usp=drivesdk) · [Metrics](https://drive.google.com/file/d/1ocESFst4xzfuLeP579z6w6AjzVJvzTEs/view?usp=drivesdk) · [Manifest](https://drive.google.com/file/d/1cdubpUAVGc-8HDOOswbMlfaY9tjm-Efc/view?usp=drivesdk)
+- **Primary Single-Branch LNN (`SB-LNN` / `stable_seed42`):** [Folder](https://drive.google.com/drive/folders/1BQXIxBxBNZKwJ6y6_DZg2QLU8lMNta2y) · [Config](https://drive.google.com/file/d/1WYmQcs4MNwUuTEVDjbXcrm5tqV7LDvt2/view?usp=drivesdk) · [Metrics](https://drive.google.com/file/d/1Z2XwJVerEB-wMBjW6UEaZN6IVLxcQhNL/view?usp=drivesdk) · [Manifest](https://drive.google.com/file/d/1apzfJYiN98JbPxmVz3cySzeGnSGPLt1g/view?usp=drivesdk)
+- **Dual-Branch LNN (`DB-LNN` / `dual_branch`, pump-pathway extension):** [Folder](https://drive.google.com/drive/folders/1NllHUEhvoFVPFT2wMXuu8mzve2ZJcciU) · [Config](https://drive.google.com/file/d/1UJlaql60OgWczRsjiCOpSPg5LY9lIF5Y/view?usp=drivesdk) · [Metrics](https://drive.google.com/file/d/1ocESFst4xzfuLeP579z6w6AjzVJvzTEs/view?usp=drivesdk) · [Manifest](https://drive.google.com/file/d/1cdubpUAVGc-8HDOOswbMlfaY9tjm-Efc/view?usp=drivesdk)
 - **Global Pump-Aware LNN (`pump_aware_global`):** [Folder](https://drive.google.com/drive/folders/16u9UnPzE7lqmfHNwIQtziJPA7jqibIGu) · [Config](https://drive.google.com/file/d/189z0sEpybdPrXgt9ZXHA7Hc3kCwhVas2/view?usp=drivesdk) · [Metrics](https://drive.google.com/file/d/1k6RgoprylVX7zhvvi4_CeBfDdm2zfD_r/view?usp=drivesdk) · [Manifest](https://drive.google.com/file/d/1ePwnvKe_no3So5WL8qxo1kpEMi8WE8iz/view?usp=drivesdk)
-- **Best Stable LNN (`stable_seed42`):** [Folder](https://drive.google.com/drive/folders/1BQXIxBxBNZKwJ6y6_DZg2QLU8lMNta2y) · [Config](https://drive.google.com/file/d/1WYmQcs4MNwUuTEVDjbXcrm5tqV7LDvt2/view?usp=drivesdk) · [Metrics](https://drive.google.com/file/d/1Z2XwJVerEB-wMBjW6UEaZN6IVLxcQhNL/view?usp=drivesdk) · [Manifest](https://drive.google.com/file/d/1apzfJYiN98JbPxmVz3cySzeGnSGPLt1g/view?usp=drivesdk)
 
 ---
 
