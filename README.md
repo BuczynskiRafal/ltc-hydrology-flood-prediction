@@ -1,5 +1,7 @@
 # LTC Hydrology Flood Prediction
 
+[![CI](https://github.com/BuczynskiRafal/ltc-hydrology-flood-prediction/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/BuczynskiRafal/ltc-hydrology-flood-prediction/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/BuczynskiRafal/ltc-hydrology-flood-prediction)](https://github.com/BuczynskiRafal/ltc-hydrology-flood-prediction/releases/latest)
 [![DOI: 10.3390/w18172169](https://img.shields.io/badge/DOI-10.3390%2Fw18172169-007ec6)](https://doi.org/10.3390/w18172169)
 [![Journal: MDPI Water 18(17), 2169](https://img.shields.io/badge/Journal-MDPI%20Water%2018(17)%2C%202169-008080)](https://www.mdpi.com/2073-4441/18/17/2169)
 [![ORCID: 0000-0002-0956-0325](https://img.shields.io/badge/ORCID-0000--0002--0956--0325-A6CE39)](https://orcid.org/0000-0002-0956-0325)
@@ -68,6 +70,7 @@ If you use this codebase, model architectures (`HierarchicalLTC`, `FlashFloodGat
 @software{Buczynski2026LTCHydrologyRepo,
   author       = {Buczy{\'n}ski, Rafa{\l}},
   title        = {{ltc-hydrology-flood-prediction}: Companion Code and Benchmark Snapshot for Liquid Time-Constant Networks in Urban Drainage Forecasting},
+  version      = {1.0.0},
   year         = {2026},
   publisher    = {GitHub},
   url          = {https://github.com/BuczynskiRafal/ltc-hydrology-flood-prediction},

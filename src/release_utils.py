@@ -54,7 +54,8 @@ COMMON_SCHEDULER_KEYS = {
     "warmup_start_factor",
 }
 COMMON_EARLY_STOPPING_KEYS = {"patience", "min_delta"}
-COMMON_DATA_KEYS = {"use_reduced", "data_dir"}
+COMMON_DATA_KEYS = {"use_reduced"}
+OPTIONAL_DATA_KEYS = {"data_dir"}
 COMMON_EVALUATION_KEYS = {"threshold_artifact"}
 COMMON_OUTPUT_KEYS = {"checkpoint_dir"}
 LNN_OPTIONAL_MODEL_KEYS = {
@@ -265,7 +266,11 @@ def validate_model_config(
         allow_extra=allow_extra,
     )
     _validate_section_keys(
-        "data", config["data"], COMMON_DATA_KEYS, allow_extra=allow_extra
+        "data",
+        config["data"],
+        COMMON_DATA_KEYS,
+        optional_keys=OPTIONAL_DATA_KEYS,
+        allow_extra=allow_extra,
     )
     _validate_section_keys(
         "evaluation",
@@ -336,7 +341,7 @@ def extract_supported_config(
             key: None
             for key in (LOSS_REQUIRED_KEYS[model_name] | LOSS_OPTIONAL_KEYS[model_name])
         },
-        "data": {key: None for key in COMMON_DATA_KEYS},
+        "data": {key: None for key in (COMMON_DATA_KEYS | OPTIONAL_DATA_KEYS)},
         "evaluation": {key: None for key in COMMON_EVALUATION_KEYS},
         "output": {key: None for key in COMMON_OUTPUT_KEYS},
     }

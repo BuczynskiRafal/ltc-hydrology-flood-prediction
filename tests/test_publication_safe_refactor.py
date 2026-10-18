@@ -25,6 +25,9 @@ _SKIP_REASON = "PyTorch is not installed"
 
 if HAS_TORCH:
     from experiments.regression_pipeline import (
+        count_parameters,
+        create_model,
+        load_model_config,
         load_trained_model,
         set_global_seed,
     )
@@ -219,6 +222,84 @@ class TestModelContracts(unittest.TestCase):
         self.assertEqual(tuple(intensity.shape), (self.batch_size, 1))
         self.assertEqual(tuple(attn_weights.shape), (self.batch_size, self.seq_len, 1))
         self.assertEqual(tuple(tau_sequence.shape), (self.batch_size, self.seq_len, 1))
+
+    def test_sb_lnn_forward_pass_from_article_config(self):
+        """SB-LNN (stable_seed42) forward pass on synthetic CPU tensor."""
+        config_path = (
+            PROJECT_ROOT
+            / "notebooks/article_materials_20260419/lnn_variants/stable_seed42/config.yaml"
+        )
+        config = load_model_config("lnn", config_path)
+        model = create_model("lnn", config)
+        model.eval()
+
+        self.assertFalse(model.use_pump_branch)
+        self.assertTrue(model.use_separate_depth_heads)
+        self.assertTrue(model.per_neuron_tau)
+        self.assertEqual(model.input_size, 31)
+        self.assertEqual(model.encoder_input_size, 31)
+        self.assertGreater(count_parameters(model), 0)
+
+        x_cpu = torch.randn(self.batch_size, self.seq_len, 31, device="cpu")
+        with torch.no_grad():
+            depths, overflow, intensity, attn_weights, tau_sequence = model(
+                x_cpu, return_attention=True
+            )
+
+        self.assertEqual(tuple(depths.shape), (self.batch_size, 5))
+        self.assertEqual(tuple(overflow.shape), (self.batch_size, 1))
+        self.assertEqual(tuple(intensity.shape), (self.batch_size, 1))
+        self.assertEqual(tuple(attn_weights.shape), (self.batch_size, self.seq_len, 1))
+        self.assertEqual(
+            tuple(tau_sequence.shape),
+            (self.batch_size, self.seq_len, config["model"]["fast_units"]),
+        )
+        self.assertTrue(torch.isfinite(depths).all())
+        self.assertTrue(torch.all((tau_sequence >= 0.05) & (tau_sequence <= 3.0)))
+
+    def test_db_lnn_forward_pass_from_article_config(self):
+        """DB-LNN (dual_branch) forward pass and pathway isolation on synthetic CPU tensor."""
+        config_path = (
+            PROJECT_ROOT
+            / "notebooks/article_materials_20260419/lnn_variants/dual_branch/config.yaml"
+        )
+        config = load_model_config("lnn", config_path)
+        model = create_model("lnn", config)
+        model.eval()
+
+        self.assertTrue(model.use_pump_branch)
+        self.assertTrue(model.use_separate_depth_heads)
+        self.assertTrue(model.per_neuron_tau)
+        self.assertEqual(model.input_size, 36)
+        self.assertEqual(model.encoder_input_size, 31)
+        self.assertEqual(model.pump_head_target_index, 4)
+        self.assertEqual(model.pump_branch_input_indices, (31, 32, 33, 34, 35))
+        self.assertGreater(count_parameters(model), 0)
+
+        x_a = torch.randn(self.batch_size, self.seq_len, 36, device="cpu")
+        x_b = x_a.clone()
+        x_b[:, :, 31:36] = torch.randn_like(x_b[:, :, 31:36]) + 5.0
+
+        with torch.no_grad():
+            depths_a, overflow_a, intensity_a, attn_a, tau_a = model(
+                x_a, return_attention=True
+            )
+            depths_b, _, _, _, _ = model(x_b, return_attention=True)
+
+        self.assertEqual(tuple(depths_a.shape), (self.batch_size, 5))
+        self.assertEqual(tuple(overflow_a.shape), (self.batch_size, 1))
+        self.assertEqual(tuple(intensity_a.shape), (self.batch_size, 1))
+        self.assertEqual(tuple(attn_a.shape), (self.batch_size, self.seq_len, 1))
+        self.assertEqual(
+            tuple(tau_a.shape),
+            (self.batch_size, self.seq_len, config["model"]["fast_units"]),
+        )
+        self.assertTrue(torch.isfinite(depths_a).all())
+        self.assertTrue(torch.all((tau_a >= 0.05) & (tau_a <= 3.0)))
+        # Gravity-driven passive sensors [0..3] must remain unaffected by pump-only feature perturbations
+        self.assertTrue(torch.allclose(depths_a[:, :4], depths_b[:, :4], atol=1e-6))
+        # Pump station target head [4] (G80F13P_LevelPS) must respond to pump branch inputs
+        self.assertFalse(torch.allclose(depths_a[:, 4], depths_b[:, 4], atol=1e-6))
 
 
 @unittest.skipUnless(HAS_TORCH, _SKIP_REASON)

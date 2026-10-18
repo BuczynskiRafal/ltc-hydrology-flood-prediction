@@ -485,10 +485,27 @@ def load_split_data_for_config(config: dict[str, Any], split: str) -> dict[str, 
 
 
 def describe_split_data_for_config(
-    config: dict[str, Any], split: str
+    config: dict[str, Any],
+    split: str,
+    in_memory_data: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     use_reduced = config["data"].get("use_reduced", True)
     data_dir = config["data"].get("data_dir")
+    if in_memory_data is not None:
+        return {
+            "split": split,
+            "use_reduced": bool(use_reduced),
+            "data_dir": str(data_dir or "in_memory"),
+            "source": "in_memory",
+            "files": {
+                name: {
+                    "path": f"in_memory:{split}:{name}",
+                    "shape": list(np.asarray(array).shape),
+                    "dtype": str(np.asarray(array).dtype),
+                }
+                for name, array in sorted(in_memory_data.items())
+            },
+        }
     return describe_regression_data(split, use_reduced=use_reduced, data_dir=data_dir)
 
 
@@ -732,11 +749,13 @@ def train_model(
         deterministic=bool(config["runtime"]["deterministic"]),
     )
     device = get_runtime_device(config, device)
+    in_memory_train = train_data
+    in_memory_val = val_data
     train_data = train_data or load_split_data_for_config(config, "train")
     val_data = val_data or load_split_data_for_config(config, "val")
     split_descriptions = [
-        describe_split_data_for_config(config, "train"),
-        describe_split_data_for_config(config, "val"),
+        describe_split_data_for_config(config, "train", in_memory_data=in_memory_train),
+        describe_split_data_for_config(config, "val", in_memory_data=in_memory_val),
     ]
     train_loader, val_loader = create_train_and_validation_loaders(
         config, train_data, val_data
@@ -1499,8 +1518,12 @@ def evaluate_lnn_ensemble(
     resolved_test_data = test_data or load_split_data_for_config(
         reference_config, "test"
     )
-    val_description = describe_split_data_for_config(reference_config, "val")
-    test_description = describe_split_data_for_config(reference_config, "test")
+    val_description = describe_split_data_for_config(
+        reference_config, "val", in_memory_data=val_data
+    )
+    test_description = describe_split_data_for_config(
+        reference_config, "test", in_memory_data=test_data
+    )
     val_loader = create_test_loader(reference_config, resolved_val_data)
     test_loader = create_test_loader(reference_config, resolved_test_data)
 

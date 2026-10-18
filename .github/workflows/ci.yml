@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "release/**", "feat/**", "fix/**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: Lint & CPU Smoke Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install CPU dependencies and static analysis tools
+        run: |
+          uv pip install --system \
+            --extra-index-url https://download.pytorch.org/whl/cpu \
+            torch numpy pandas scipy scikit-learn pyyaml captum pytest ruff
+
+      - name: Lint with Ruff
+        run: ruff check src/ experiments/ tests/
+
+      - name: Forward-Pass Smoke Test (SB-LNN & DB-LNN on synthetic CPU tensor)
+        run: |
+          pytest -v tests/test_publication_safe_refactor.py \
+            -k "test_sb_lnn_forward_pass_from_article_config or test_db_lnn_forward_pass_from_article_config"
+
+      - name: Run full unit and contract test suite
+        run: pytest -v tests/

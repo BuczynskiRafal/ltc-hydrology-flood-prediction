@@ -240,6 +240,7 @@ class TestReadmeConsistency(unittest.TestCase):
         self.assertTrue(cff_path.is_file(), "CITATION.cff must exist in project root")
         data = yaml.safe_load(cff_path.read_text(encoding="utf-8"))
         self.assertEqual(data.get("cff-version"), "1.2.0")
+        self.assertEqual(data.get("version"), "1.0.0")
         self.assertEqual(
             data.get("repository-code"),
             "https://github.com/BuczynskiRafal/ltc-hydrology-flood-prediction",
@@ -253,6 +254,15 @@ class TestReadmeConsistency(unittest.TestCase):
         self.assertEqual(pref.get("issue"), 17)
         self.assertEqual(pref.get("start"), 2169)
         self.assertEqual(pref.get("year"), 2026)
+
+    def test_ci_workflow_exists_and_is_valid_yaml(self):
+        import yaml
+
+        ci_path = PROJECT_ROOT / ".github/workflows/ci.yml"
+        self.assertTrue(ci_path.is_file(), ".github/workflows/ci.yml must exist")
+        data = yaml.safe_load(ci_path.read_text(encoding="utf-8"))
+        self.assertEqual(data.get("name"), "CI")
+        self.assertIn("ci", data.get("jobs", {}))
 
     def test_readme_relative_links_exist(self):
         import re

@@ -351,7 +351,7 @@ class TestEvalIgSmoke(unittest.TestCase):
             eval_ig_module.CAPTUM_IMPORT_ERROR = ModuleNotFoundError("test")
 
             with self.assertRaises(ModuleNotFoundError) as ctx:
-                eval_ig_module.main()
+                eval_ig_module.main([])
             self.assertIn("Captum", str(ctx.exception))
         finally:
             eval_ig_module.IntegratedGradients = original_ig
